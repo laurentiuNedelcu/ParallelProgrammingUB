@@ -1,3 +1,7 @@
+/*
+	Laurentiu Nedelcu
+*/
+
 #include <iostream>
 #include <omp.h>
 #include <chrono>
@@ -5,6 +9,7 @@
 
 #define WIDTH 3840
 #define HEIGHT 2160
+#define SIZE_CHUNK 5
 
 #define EXPERIMENT_ITERATIONS 1000
 
@@ -44,30 +49,30 @@ bool checkResults(uchar4* rgba, uchar3* grb, int size) {
 void convertGRB2RGBA(uchar3* grb, uchar4* rgba, int width, int height) {
     for (int x=0; x<width; ++x) {
     	for (int y=0; y<height; ++y) {	
-	    rgba[width * y + x].x = grb[width * y + x].y;
-	    rgba[width * y + x].y = grb[width * y + x].x;
-	    rgba[width * y + x].z = grb[width * y + x].z;
-	    rgba[width * y + x].w = 255;
+            rgba[width * y + x].x = grb[width * y + x].y;
+            rgba[width * y + x].y = grb[width * y + x].x;
+            rgba[width * y + x].z = grb[width * y + x].z;
+            rgba[width * y + x].w = 255;
 	}
     }
 }
 
 void convertGRB2RGBA_2(uchar3* grb, uchar4* rgba, int width, int height) {
-	
-	for (int y=0; y<height; ++y) {
-    	for (int x=0; x<width; ++x) {	
-	    rgba[width * y + x].x = grb[width * y + x].y;
-	    rgba[width * y + x].y = grb[width * y + x].x;
-	    rgba[width * y + x].z = grb[width * y + x].z;
-	    rgba[width * y + x].w = 255;
-	}
+	int y, x;
+	for (y=0; y<height; ++y) {
+    	for (x=0; x<width; ++x) {	
+            rgba[width * y + x].x = grb[width * y + x].y;
+            rgba[width * y + x].y = grb[width * y + x].x;
+            rgba[width * y + x].z = grb[width * y + x].z;
+            rgba[width * y + x].w = 255;
+	    }
     }
 }
 
 void convertGRB2RGBA_2_optional(uchar3* grb, uchar4* rgba, int width, int height) {
-	
+	int pos;
 	int total = width*height;
-	for (int pos=0; pos < total; ++pos) {
+	for (pos=0; pos < total; ++pos) {
 		rgba[pos].x = grb[pos].y;
 		rgba[pos].y = grb[pos].x;
 		rgba[pos].z = grb[pos].z;
@@ -77,28 +82,17 @@ void convertGRB2RGBA_2_optional(uchar3* grb, uchar4* rgba, int width, int height
 }
 
 void convertGRB2RGBA_3(uchar3* grb, uchar4* rgba, int width, int height) {
-	
-	//#pragma omp parrallel for 
-    //#pragma omp for schedule(static, 1)
-    //#pragma omp for schedule(static, STATIC_CHUNK)
-    //#pragma omp for schedule(dynamic, 1)
-    //#pragma omp for schedule(dynamic, DYNAMIC_CHUNK)
-    //#pragma omp for schedule(guided)
-    for (int y=0; y<height; ++y)
-    {
-        //#pragma omp parrallel for aquest pitjor perque continuament creem i destruim tasques
-        for (int x=0; x<width; ++x)
-        {	
-            uchar3 tmp_3 = brg[width* y + x];
-            uchar4 tmp_4;
-            
-            tmp_4.x = tmp_3.y;
-            tmp_4.y = tmp_3.z;
-            tmp_4.z = tmp_3.x;
-            tmp_4.w = 255;
-            
-            rgba[width* y + x] = tmp_4;
-        }
+	int x, y;
+	#pragma omp parallel for \
+	schedule(auto) \
+	private(x, y) firstprivate(grb, width, height, rgba)
+	for (y=0; y<height; ++y) {
+    	for (x=0; x<width; ++x) {	
+            rgba[width * y + x].x = grb[width * y + x].y;
+            rgba[width * y + x].y = grb[width * y + x].x;
+            rgba[width * y + x].z = grb[width * y + x].z;
+            rgba[width * y + x].w = 255;
+	    }
     }
 }
 
@@ -122,15 +116,23 @@ int main() {
 
 	// Time point representing the current time
     auto t1 = std::chrono::high_resolution_clock::now();
+    #pragma omp parallel
+    #pragma omp critical
+    {
+        std::cout << "I am the thread number " << omp_get_thread_num() << std::endl;
+    }
+    #pragma omp for
     for (int i=0; i<EXPERIMENT_ITERATIONS; ++i) {    
 		convertGRB2RGBA_2(h_grb, h_rgba, WIDTH, HEIGHT);
     }
+    
     auto t2 = std::chrono::high_resolution_clock::now();
-
+    
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+    
     std::cout << "convertGRB2RGBA time for " << EXPERIMENT_ITERATIONS \
     << " iterations = "<< duration << "us" << std::endl;
-
+    
     bool ok = checkResults(h_rgba, h_grb, WIDTH*HEIGHT);
 
     if (ok) {
